@@ -45,7 +45,7 @@ module Sequel
       else
         if m = current.reverse.match(/#{"#{$/}# Table: ".reverse}/m)
           offset = current.length - m.end(0) + 1
-          unless current[offset..-1].match(/^[^#]/)
+          if options[:yard_docs] || !current[offset..-1].match(/^[^#]/)
             # If Table: comment exists, and there are no
             # uncommented lines between it and the end of the file
             # then replace current comment instead of appending it
@@ -168,10 +168,37 @@ SQL
 
       unless options[:foreign_keys] == false
         rows = model.db.fetch(<<SQL, :oid=>oid).all
-SELECT conname,
-  pg_catalog.pg_get_constraintdef(r.oid, true) as condef
-FROM pg_catalog.pg_constraint r
-WHERE r.conrelid = :oid AND r.contype = 'f' ORDER BY 1;
+select 
+    att2.attname as "child_column", 
+    cl.relname as "parent_table", 
+    att.attname as "parent_column",
+    conname,
+    condef
+from
+   (select 
+        unnest(con1.conkey) as "parent", 
+        unnest(con1.confkey) as "child", 
+        con1.confrelid, 
+        con1.conrelid,
+        con1.conname,
+        pg_catalog.pg_get_constraintdef(con1.oid, true) as condef
+    from 
+        pg_class cl
+        join pg_namespace ns on cl.relnamespace = ns.oid
+        join pg_constraint con1 on con1.conrelid = cl.oid
+    where
+        con1.conrelid = :oid
+        and con1.contype = 'f'
+   ) con
+   join pg_attribute att on
+       att.attrelid = con.confrelid and att.attnum = con.child
+   join pg_class cl on
+       cl.oid = con.confrelid
+   join pg_attribute att2 on
+       att2.attrelid = con.conrelid and att2.attnum = con.parent
+order by
+  conname
+;
 SQL
         unless rows.empty?
           output << "# Foreign key constraints:"
@@ -184,7 +211,7 @@ SQL
 
       unless options[:references] == false
         rows = model.db.fetch(<<SQL, :oid=>oid).all
-SELECT conname, conrelid::pg_catalog.regclass,
+SELECT conname, conrelid::pg_catalog.regclass::text,
   pg_catalog.pg_get_constraintdef(c.oid, true) as condef
 FROM pg_catalog.pg_constraint c
 WHERE c.confrelid = :oid AND c.contype = 'f' ORDER BY 2, 1;
@@ -236,6 +263,39 @@ SQL
         send(meth)
       else
         {}
+      end
+
+      if options[:yard_docs] || true
+        comments = model.columns.map do |col|
+          sch = model.db_schema[col]
+
+          ruby_type = {
+              nil => "String",
+              string: "String",
+              integer: "Integer",
+              decimal: "Decimal",
+              datetime: "Time",
+              date: "Date"
+          }
+
+          null = sch[:allow_null] ? ', nil' : ''
+          t = ruby_type[sch[:type]] + null
+
+          comments = [
+              "(#{sch[:db_type]})",
+              column_comments[col.to_s]
+          ].compact.join(' ')
+
+          [
+              "  # @!attribute[rw] #{col.to_s}",
+              "  #  @return [#{t}] #{comments}"
+          ].join("\n")
+        end
+
+        comments.unshift("class #{model.name}")
+        comments << "end"
+
+        output.concat(comments)
       end
 
       rows = model.columns.map do |col|
