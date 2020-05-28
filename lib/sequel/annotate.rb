@@ -275,7 +275,8 @@ SQL
               integer: "Integer",
               decimal: "Decimal",
               datetime: "Time",
-              date: "Date"
+              date: "Date",
+              jsonb: "Hash"
           }
 
           null = sch[:allow_null] ? ', nil' : ''
