@@ -276,11 +276,12 @@ SQL
               decimal: "Decimal",
               datetime: "Time",
               date: "Date",
-              jsonb: "Hash"
+              jsonb: "Hash",
+              uuid: "String"
           }
 
           null = sch[:allow_null] ? ', nil' : ''
-          t = ruby_type[sch[:type]] + null
+          t = (ruby_type[sch[:type]] || ruby_type[nil]) + null
 
           comments = [
               "(#{sch[:db_type]})",
